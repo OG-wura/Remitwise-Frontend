@@ -17,15 +17,16 @@ import {
 } from "lucide-react";
 import { useDensity } from "@/lib/context/DensityContext";
 import { useToast } from "@/lib/context/ToastContext";
-
+import { useUserPreferences } from "@/lib/hooks/useUserPreferences";
+import { useClientTranslator } from "@/lib/i18n/client";
 
 const SECTIONS = [
-  { id: "profile",        label: "Profile",         icon: User    },
-  { id: "notifications",  label: "Notifications",   icon: Bell    },
-  { id: "security",       label: "Security",        icon: Shield  },
-  { id: "wallet",         label: "Wallet",          icon: Wallet  },
-  { id: "family",         label: "Family",          icon: Users   },
-  { id: "preferences",    label: "Preferences",     icon: Globe   },
+  { id: "profile", label: "Profile", icon: User },
+  { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "security", label: "Security", icon: Shield },
+  { id: "wallet", label: "Wallet", icon: Wallet },
+  { id: "family", label: "Family", icon: Users },
+  { id: "preferences", label: "Preferences", icon: Globe },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -127,12 +128,17 @@ function Toggle({
   label,
   description,
   defaultChecked,
+  checked,
+  onChange,
 }: {
   label: string;
   description?: string;
   defaultChecked?: boolean;
+  checked?: boolean;
+  onChange?: (next: boolean) => void;
 }) {
-  const [on, setOn] = useState(defaultChecked ?? false);
+  const [uncontrolledOn, setUncontrolledOn] = useState(defaultChecked ?? false);
+  const on = checked ?? uncontrolledOn;
   return (
     <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-gray-50 dark:border-gray-800/60 last:border-0">
       <div className="min-w-0">
@@ -148,7 +154,11 @@ function Toggle({
       <button
         role="switch"
         aria-checked={on}
-        onClick={() => setOn((v) => !v)}
+        onClick={() => {
+          const next = !on;
+          if (checked !== undefined) onChange?.(next);
+          else setUncontrolledOn(next);
+        }}
         className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 ${
           on ? "bg-indigo-600" : "bg-gray-200 dark:bg-gray-700"
         }`}
@@ -164,43 +174,50 @@ function Toggle({
   );
 }
 
-function SaveButton({ label = "Save changes" }: { label?: string }) {
-  const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
-  const { toast } = useToast();
-
-  const handleClick = () => {
-    setState("saving");
-    setTimeout(() => {
-      setState("saved");
-      toast({
-        variant: "success",
-        title: "Preferences saved",
-        description: "Your settings have been saved successfully.",
-        duration: 2000,
-      });
-      setTimeout(() => setState("idle"), 2000);
-    }, 800);
-  };
-
+function SaveButton({
+  label = "Save changes",
+  saveState,
+  onSave,
+  isDisabled,
+}: {
+  label?: string;
+  saveState: "idle" | "loading" | "saving" | "saved" | "error";
+  onSave: () => void;
+  isDisabled?: boolean;
+}) {
   return (
     <div className="flex justify-end px-6 py-4 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-800">
       <button
-        onClick={handleClick}
-        disabled={state === "saving"}
+        onClick={onSave}
+        disabled={
+          isDisabled || saveState === "saving" || saveState === "loading"
+        }
         className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-60 transition-colors min-w-[130px] justify-center"
       >
-        {state === "saving" && (
+        {saveState === "saving" || saveState === "loading" ? (
           <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
           </svg>
-        )}
-        {state === "saved" ? (
+        ) : saveState === "saved" ? (
           <>
             <Check className="h-4 w-4" />
             {label}
           </>
-        ) : label}
+        ) : (
+          label
+        )}
       </button>
     </div>
   );
@@ -271,7 +288,8 @@ function InsuranceReminderPreview() {
         <div className="text-xs text-gray-500 dark:text-gray-400">
           {status === "loading" && "Loading…"}
           {status === "empty" && "No reminders in the next 7 days."}
-          {status === "loaded" && `${reminders.length} reminder${reminders.length === 1 ? "" : "s"}`}
+          {status === "loaded" &&
+            `${reminders.length} reminder${reminders.length === 1 ? "" : "s"}`}
           {status === "unauthorized" && "Sign in to view reminders."}
           {status === "error" && "Unable to load reminders."}
         </div>
@@ -312,7 +330,15 @@ function InsuranceReminderPreview() {
 
 // ─── Sections ────────────────────────────────────────────────────────────────
 
-function ProfileSection() {
+function ProfileSection({
+  saveState,
+  onSave,
+  label,
+}: {
+  saveState: "idle" | "loading" | "saving" | "saved" | "error";
+  onSave: () => void;
+  label: string;
+}) {
   return (
     <SectionCard id="profile">
       <SectionHeader
@@ -352,19 +378,44 @@ function ProfileSection() {
             placeholder="+1 555 000 0000"
           />
         </FieldRow>
-        <FieldRow label="Stellar public key" hint="Read-only · linked to wallet">
-          <TextInput
-            defaultValue="GBQWY...K3PT"
-            disabled
-          />
+        <FieldRow
+          label="Stellar public key"
+          hint="Read-only · linked to wallet"
+        >
+          <TextInput defaultValue="GBQWY...K3PT" disabled />
         </FieldRow>
       </div>
-      <SaveButton />
+      <SaveButton saveState={saveState} onSave={onSave} label={label} />
     </SectionCard>
   );
 }
 
-function NotificationsSection() {
+function NotificationsSection({
+  preferences,
+  onToggle,
+  currency,
+  onCurrencyChange,
+  timezone,
+  onTimezoneChange,
+  saveState,
+  onSave,
+  label,
+}: {
+  preferences: {
+    notifications_enabled?: boolean;
+    currency?: string;
+    timezone?: string;
+  } | null;
+  onToggle: (next: boolean) => void;
+  currency: string | undefined;
+  onCurrencyChange: (next: string) => void;
+  timezone: string | undefined;
+  onTimezoneChange: (next: string) => void;
+  saveState: "idle" | "loading" | "saving" | "saved" | "error";
+  onSave: () => void;
+  label: string;
+}) {
+  const notificationsEnabled = preferences?.notifications_enabled;
   return (
     <SectionCard id="notifications">
       <SectionHeader
@@ -377,46 +428,17 @@ function NotificationsSection() {
           Remittances
         </p>
         <Toggle
-          label="Transfer confirmed"
-          description="When your payment reaches the recipient"
-          defaultChecked
-        />
-        <Toggle
-          label="Transfer failed"
-          description="If a payment cannot be processed"
-          defaultChecked
-        />
-        <Toggle
-          label="Exchange rate alert"
-          description="When the rate improves by more than 2 %"
+          label="RemitWise notifications"
+          description="Master opt-in/out for notification delivery"
+          checked={notificationsEnabled ?? true}
+          onChange={onToggle}
         />
         <p className="px-6 pt-5 pb-2 text-xs font-medium uppercase tracking-widest text-gray-400 dark:text-gray-500">
           Bills &amp; goals
         </p>
-        <Toggle
-          label="Bill due reminder"
-          description="48 hours before a bill is due"
-          defaultChecked
-        />
-        <Toggle
-          label="Goal milestone reached"
-          description="When you hit 25 %, 50 %, 75 %, or 100 % of a goal"
-          defaultChecked
-        />
-        <Toggle
-          label="Insurance premium reminders"
-          description="Receive alerts when insurance premiums are due or overdue."
-          defaultChecked
-        />
         <InsuranceReminderPreview />
-        <p className="px-6 pt-5 pb-2 text-xs font-medium uppercase tracking-widest text-gray-400 dark:text-gray-500">
-          Channels
-        </p>
-        <Toggle label="Email" defaultChecked />
-        <Toggle label="Push notifications" defaultChecked />
-        <Toggle label="SMS" />
       </div>
-      <SaveButton />
+      <SaveButton saveState={saveState} onSave={onSave} label={label} />
     </SectionCard>
   );
 }
@@ -493,7 +515,13 @@ function SecuritySection() {
   );
 }
 
-function WalletSection() {
+function WalletSection({
+  currency,
+  onCurrencyChange,
+}: {
+  currency: string | undefined;
+  onCurrencyChange: (next: string) => void;
+}) {
   return (
     <SectionCard id="wallet">
       <SectionHeader
@@ -502,7 +530,10 @@ function WalletSection() {
         description="Manage your Stellar wallet and network settings."
       />
       <div className="divide-y divide-gray-50 dark:divide-gray-800/60">
-        <FieldRow label="Network" hint="Switching networks requires re-authentication">
+        <FieldRow
+          label="Network"
+          hint="Switching networks requires re-authentication"
+        >
           <div className="flex gap-3">
             {["Testnet", "Mainnet"].map((net) => (
               <label
@@ -536,13 +567,21 @@ function WalletSection() {
             defaultChecked
           />
         </FieldRow>
-        <FieldRow label="Default currency" hint="Used for display and analytics">
-          <select className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors">
-            <option>USDC</option>
-            <option>XLM</option>
-            <option>NGN</option>
-            <option>GHS</option>
-            <option>KES</option>
+        <FieldRow
+          label="Default currency"
+          hint="Used for display and analytics"
+        >
+          <select
+            value={currency ?? "USD"}
+            onChange={(e) => onCurrencyChange(e.target.value)}
+            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors"
+          >
+            <option value="USD">USD</option>
+            <option value="NGN">NGN</option>
+            <option value="GHS">GHS</option>
+            <option value="KES">KES</option>
+            <option value="EUR">EUR</option>
+            <option value="GBP">GBP</option>
           </select>
         </FieldRow>
       </div>
@@ -553,12 +592,13 @@ function WalletSection() {
 
 function FamilySection() {
   const members = [
-    { initials: "AO", name: "Amara Osei", role: "Owner",  limit: "—" },
+    { initials: "AO", name: "Amara Osei", role: "Owner", limit: "—" },
     { initials: "KO", name: "Kwame Osei", role: "Member", limit: "$500 / mo" },
-    { initials: "EO", name: "Esi Osei",   role: "Viewer", limit: "$0" },
+    { initials: "EO", name: "Esi Osei", role: "Viewer", limit: "$0" },
   ];
   const roleColors: Record<string, string> = {
-    Owner:  "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300",
+    Owner:
+      "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300",
     Member: "bg-teal-50 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300",
     Viewer: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
   };
@@ -571,10 +611,7 @@ function FamilySection() {
       />
       <ul className="divide-y divide-gray-50 dark:divide-gray-800/60">
         {members.map((m) => (
-          <li
-            key={m.initials}
-            className="flex items-center gap-4 px-6 py-4"
-          >
+          <li key={m.initials} className="flex items-center gap-4 px-6 py-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-sm font-semibold select-none">
               {m.initials}
             </div>
@@ -612,17 +649,23 @@ function FamilySection() {
   );
 }
 
-function PreferencesSection() {
+function PreferencesSection({
+  timezone,
+  onTimezoneChange,
+}: {
+  timezone: string | undefined;
+  onTimezoneChange: (next: string) => void;
+}) {
   const { density, setDensity } = useDensity();
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
   const themes = [
-    { id: "system", label: "System",  Icon: Smartphone },
-    { id: "light",  label: "Light",   Icon: Sun        },
-    { id: "dark",   label: "Dark",    Icon: Moon       },
+    { id: "system", label: "System", Icon: Smartphone },
+    { id: "light", label: "Light", Icon: Sun },
+    { id: "dark", label: "Dark", Icon: Moon },
   ] as const;
   const densityOptions = [
     { id: "comfortable" as const, label: "Comfortable" },
-    { id: "compact"     as const, label: "Compact"     },
+    { id: "compact" as const, label: "Compact" },
   ];
   return (
     <SectionCard id="preferences">
@@ -641,7 +684,7 @@ function PreferencesSection() {
                 aria-pressed={theme === id}
                 className={`flex flex-1 flex-col items-center gap-1.5 rounded-lg border py-3 px-2 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                   theme === id
-                     ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300"
+                    ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300"
                     : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600"
                 }`}
               >
@@ -651,7 +694,10 @@ function PreferencesSection() {
             ))}
           </div>
         </FieldRow>
-        <FieldRow label="Display density" hint="Adjust spacing of lists and tables">
+        <FieldRow
+          label="Display density"
+          hint="Adjust spacing of lists and tables"
+        >
           <div className="flex gap-2">
             {densityOptions.map(({ id, label }) => (
               <button
@@ -679,18 +725,26 @@ function PreferencesSection() {
           </select>
         </FieldRow>
         <FieldRow label="Timezone">
-          <select className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors">
-            <option>Africa/Lagos (WAT, UTC+1)</option>
-            <option>Africa/Accra (GMT, UTC+0)</option>
-            <option>Africa/Nairobi (EAT, UTC+3)</option>
-            <option>America/New_York (EST, UTC−5)</option>
-            <option>Europe/London (GMT, UTC+0)</option>
+          <select
+            value={timezone ?? "Africa/Lagos"}
+            onChange={(e) => onTimezoneChange(e.target.value)}
+            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors"
+          >
+            <option value="Africa/Lagos">Africa/Lagos</option>
+            <option value="Africa/Accra">Africa/Accra</option>
+            <option value="Africa/Nairobi">Africa/Nairobi</option>
+            <option value="America/New_York">America/New_York</option>
+            <option value="Europe/London">Europe/London</option>
+            <option value="Europe/Paris">Europe/Paris</option>
           </select>
         </FieldRow>
         <FieldRow label="Date format">
           <div className="flex gap-3 flex-wrap">
             {["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"].map((fmt) => (
-              <label key={fmt} className="flex cursor-pointer items-center gap-2">
+              <label
+                key={fmt}
+                className="flex cursor-pointer items-center gap-2"
+              >
                 <input
                   type="radio"
                   name="dateFormat"
@@ -708,7 +762,9 @@ function PreferencesSection() {
         <FieldRow label="Display density">
           <select
             value={density}
-            onChange={(e) => setDensity(e.target.value as 'comfortable' | 'compact')}
+            onChange={(e) =>
+              setDensity(e.target.value as "comfortable" | "compact")
+            }
             className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3.5 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors"
           >
             <option value="comfortable">Comfortable</option>
@@ -725,6 +781,53 @@ function PreferencesSection() {
 
 export default function SettingsPage() {
   const [active, setActive] = useState<SectionId>("profile");
+  const t = useClientTranslator();
+  const { toast } = useToast();
+
+  const { preferences, isLoading, saveState, error, updatePreferences, flush } =
+    useUserPreferences();
+
+  useEffect(() => {
+    if (!preferences) return;
+    if (saveState === "saving") {
+      const id = toast({
+        variant: "info",
+        title: t.t("settings.save.saving", "Saving…"),
+        duration: 1500,
+      });
+      // auto-dismiss is handled by duration
+      void id;
+    } else if (saveState === "saved") {
+      toast({
+        variant: "success",
+        title: t.t("settings.save.saved", "Saved"),
+        duration: 2000,
+      });
+    } else if (saveState === "error") {
+      toast({
+        variant: "error",
+        title: t.t("settings.save.error", "Failed to save preferences"),
+        description: error ?? undefined,
+        duration: 5000,
+      });
+    }
+  }, [error, preferences, saveState, t, toast]);
+
+  const currency = preferences?.currency;
+  const timezone = preferences?.timezone;
+  const notificationsEnabled = preferences?.notifications_enabled;
+
+  const onToggleNotifications = (next: boolean) => {
+    updatePreferences({ notifications_enabled: next });
+  };
+
+  const onCurrencyChange = (next: string) => {
+    updatePreferences({ currency: next });
+  };
+
+  const onTimezoneChange = (next: string) => {
+    updatePreferences({ timezone: next });
+  };
   const observerRef = useRef<IntersectionObserver | null>(null);
 
   // ── Scroll-spy: update active nav item based on visible section ────────────
@@ -740,7 +843,7 @@ export default function SettingsPage() {
         const best = [...visible.entries()].sort((a, b) => b[1] - a[1])[0];
         if (best && best[1] > 0) setActive(best[0] as SectionId);
       },
-      { rootMargin: "-20% 0px -60% 0px", threshold: [0, 0.25, 0.5, 0.75, 1] }
+      { rootMargin: "-20% 0px -60% 0px", threshold: [0, 0.25, 0.5, 0.75, 1] },
     );
 
     ids.forEach((id) => {
@@ -827,11 +930,24 @@ export default function SettingsPage() {
         {/* ── Main content stack ── */}
         <main className="space-y-6" aria-label="Settings content">
           <ProfileSection />
-          <NotificationsSection />
+          <NotificationsSection
+            preferences={preferences}
+            onToggle={onToggleNotifications}
+            currency={currency}
+            onCurrencyChange={onCurrencyChange}
+            timezone={timezone}
+            onTimezoneChange={onTimezoneChange}
+          />
           <SecuritySection />
-          <WalletSection />
+          <WalletSection
+            currency={currency}
+            onCurrencyChange={onCurrencyChange}
+          />
           <FamilySection />
-          <PreferencesSection />
+          <PreferencesSection
+            timezone={timezone}
+            onTimezoneChange={onTimezoneChange}
+          />
         </main>
       </div>
     </div>
